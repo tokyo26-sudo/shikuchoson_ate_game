@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>日本全国市区町村名タイピングゲーム v1.05</title>
+<title>日本全国市区町村名タイピングゲーム v1.06</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <style>
   :root {
@@ -120,7 +120,23 @@
   }
   #answer-input { flex: 0 1 380px; font-size: 18px; padding: 10px 12px; border: 1px solid #ccc; border-radius: 8px; }
   @media (min-width: 481px) {
-    #answer-input { font-size: 24px; padding: 14px 16px; flex-basis: 420px; }
+    #top-panel {
+      position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+      width: 340px; border-radius: 12px; border-bottom: none;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+      padding: 12px 14px; padding-right: 86px;
+    }
+    #status-bar { font-size: 16px; margin-bottom: 8px; }
+    #progress { font-size: 16px; font-weight: bold; color: var(--ink); }
+    #score-text { font-size: 20px; }
+    #timer { font-size: 16px; }
+    #input-row { gap: 0; }
+    #answer-input { flex: 1; width: auto; font-size: 20px; padding: 8px 10px; text-align: left; }
+    #action-buttons {
+      position: absolute; top: 12px; right: 14px; bottom: 12px;
+      width: 64px; display: flex; flex-direction: column; justify-content: space-between;
+    }
+    #action-buttons button { font-size: 11px; padding: 4px 2px; }
   }
   #pop-toggle {
     display: flex; align-items: center; gap: 4px; font-size: 12px; padding: 8px 12px;
@@ -321,7 +337,7 @@
 <div id="app" style="display:none;">
 
   <div id="overlay">
-    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.05</span></h1>
+    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.06</span></h1>
     <div class="desc">地図上の市区町村をクリックして、名前を入力してクダサイ。<br>入力欄が空のときはスペースキーでランダム選択、矢印キーで隣に移動もできるヨ。Tabキーで正解ラベルの表示/非表示も切り替えられるダカラ。<br>下で範囲・制限時間・ヒントを選んでからスタートしてネ。</div>
     <button id="howto-link" type="button">📖 遊び方</button>
 

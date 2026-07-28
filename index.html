@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>日本全国市区町村名タイピングゲーム v1.08</title>
+<title>日本全国市区町村名タイピングゲーム v1.09</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <style>
   :root {
@@ -122,7 +122,7 @@
   @media (min-width: 481px) {
     #top-panel {
       position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
-      width: 340px; border-radius: 12px; border-bottom: none;
+      width: 420px; border-radius: 12px; border-bottom: none;
       box-shadow: 0 4px 16px rgba(0,0,0,0.18);
       padding: 12px 14px; padding-right: 86px;
     }
@@ -174,8 +174,8 @@
   #badge-overlay.dragging { cursor: grabbing; }
   @media (min-width: 481px) {
     #badge-overlay {
-      left: auto; right: 10px; max-width: calc(100% - 380px);
-      flex-wrap: wrap; overflow: visible;
+      left: calc(50% + 210px + 12px); right: 10px; max-width: none;
+      flex-wrap: wrap; overflow: visible; top: 16px;
     }
   }
   .badge-icon {
@@ -343,7 +343,7 @@
 <div id="app" style="display:none;">
 
   <div id="overlay">
-    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.08</span></h1>
+    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.09</span></h1>
     <div class="desc">地図上の市区町村をクリックして、名前を入力してクダサイ。<br>入力欄が空のときはスペースキーでランダム選択、矢印キーで隣に移動もできるヨ。Tabキーで正解ラベルの表示/非表示も切り替えられるダカラ。<br>下で範囲・制限時間・ヒントを選んでからスタートしてネ。</div>
     <button id="howto-link" type="button">📖 遊び方</button>
 

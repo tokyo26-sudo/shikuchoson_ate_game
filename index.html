@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>日本全国市区町村名タイピングゲーム v1.02</title>
+<title>日本全国市区町村名タイピングゲーム v1.03</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <style>
   :root {
@@ -318,7 +318,7 @@
 <div id="app" style="display:none;">
 
   <div id="overlay">
-    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.02</span></h1>
+    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.03</span></h1>
     <div class="desc">地図上の市区町村をクリックして、名前を入力してクダサイ。<br>入力欄が空のときはスペースキーでランダム選択、矢印キーで隣に移動もできるヨ。Tabキーで正解ラベルの表示/非表示も切り替えられるダカラ。<br>下で範囲・制限時間・ヒントを選んでからスタートしてネ。</div>
     <button id="howto-link" type="button">📖 遊び方</button>
 
@@ -345,10 +345,10 @@
     </div>
 
     <div class="setup-block">
-      <div class="label">隣接ヒント</div>
+      <div class="label">ヒント</div>
       <label class="toggle-row"><input type="radio" name="adjacent-hint-type" value="none">なし</label>
-      <label class="toggle-row"><input type="radio" name="adjacent-hint-type" value="fixed">頭文字のみ（正解数に関わらず1文字）</label>
-      <label class="toggle-row"><input type="radio" name="adjacent-hint-type" value="growing" checked>じわじわ増える（正解が増えるほど文字数アップ）</label>
+      <label class="toggle-row"><input type="radio" name="adjacent-hint-type" value="timer">じわじわヒント（10秒で頭文字、その後3秒毎に1文字ずつ）</label>
+      <label class="toggle-row"><input type="radio" name="adjacent-hint-type" value="adjacent" checked>隣接市町村ヒント（正解が増えるほど文字数アップ）</label>
     </div>
 
     <div class="setup-block">
@@ -403,7 +403,7 @@
     </ul>
     <h3>ヒントを使おう</h3>
     <ul>
-      <li>「隣接ヒント」で、正解した市区町村の隣の市区町村の名前がヒントとして出てくるヨ</li>
+      <li>ヒントは2種類：「じわじわヒント」は選んでから10秒後に頭文字、その後3秒ごとに1文字ずつ増えるヨ。「隣接市町村ヒント」は、正解した市区町村の隣の名前がヒントとして少しずつ出てくるヨ</li>
       <li>最初から「◯」で文字数がわかるカラ、安心してネ</li>
       <li>人口の色分けや、名前リスト表示もオンにできるけど、名前リストを使うとスコアが1/3になっちゃうから気をつけてネ！</li>
     </ul>
@@ -551,6 +551,8 @@ async function __initGame() {
   let answeredCodes = new Set();
   let centroids = {}; // code -> [lng, lat]（キーボードでの方向移動に使う簡易重心）
   let hintsOn = false, hintAdjacentMode = 'none', hintPopulation = false;
+  let timeHintShownChars = {}; // code -> じわじわヒントで何文字開いてるか（選び直しても引き継ぐダカラ）
+  let timeHintTimer = null;
   let popMode = false;
   let maxPop = 1;
   let timerInterval = null;
@@ -642,17 +644,19 @@ async function __initGame() {
     const yomi = feature.properties.yomi;
     if (!yomi) return 0;
     const totalLen = shortestYomiVariant(yomi).length;
-    if (totalLen <= 1) return 0; // 1文字の市区町村（津市）は絶対に開かないダカラ
     if (hintAdjacentMode === 'none') return 0;
 
+    if (hintAdjacentMode === 'timer') {
+      // じわじわヒント：時間経過で開くダカラ、コッチは最後の1文字まで開いてOK（津市も例外ナシ）
+      return Math.min(totalLen, timeHintShownChars[code] || 0);
+    }
+
+    // 'adjacent'（隣接市町村ヒント）：正解した隣接の割合で開くダカラ
+    if (totalLen <= 1) return 0; // 1文字の市区町村（津市）は絶対に開かないダカラ
     const neighbors = (ADJACENCY[code] || []).filter(n => inRangeCodes.has(n));
     if (neighbors.length === 0) return 0;
     const answeredNeighbors = neighbors.filter(n => answeredCodes.has(n)).length;
     if (answeredNeighbors === 0) return 0;
-
-    if (hintAdjacentMode === 'fixed') {
-      return Math.min(totalLen - 1, 1); // 頭文字だけ固定表示、増えないダカラ
-    }
 
     const ratio = answeredNeighbors / neighbors.length;
     const raw = Math.max(1, Math.floor(totalLen * ratio)); // 1個答えたら最低でも頭文字は保証ダカラ
@@ -667,6 +671,44 @@ async function __initGame() {
     const shown = base.slice(0, n);
     const rest = '◯'.repeat(Math.max(0, base.length - n));
     return shown + rest; // 文字数は最初（n=0）でも◯の数で分かるようにするダカラ
+  }
+
+  // じわじわヒント：選んでから10秒後に頭文字、その後3秒毎に1文字ずつ増えるダカラ
+  // （国あてゲームと同じ方式ダカラ）他のマスを選んでからまた選び直しても、
+  // 開いてた文字数はソノまま引き継ぐヨ（ヒント抜け穴防止のためダカラ）
+  function scheduleTimeHint(feature) {
+    const code = feature.properties.code;
+    const yomi = feature.properties.yomi;
+    if (!yomi) return;
+    const totalLen = shortestYomiVariant(yomi).length;
+    if (totalLen === 0) return;
+    if (typeof timeHintShownChars[code] !== 'number') timeHintShownChars[code] = 0;
+
+    function render() {
+      const input = document.getElementById('answer-input');
+      if (input.dataset.code !== code || input.value) return;
+      input.placeholder = placeholderFor(feature);
+    }
+
+    function tick() {
+      const input = document.getElementById('answer-input');
+      if (input.dataset.code !== code || input.value) return;
+      timeHintShownChars[code]++;
+      render();
+      if (timeHintShownChars[code] < totalLen) {
+        timeHintTimer = setTimeout(tick, 3000);
+      }
+    }
+
+    if (timeHintShownChars[code] > 0) {
+      // 既に途中まで開いてるマスは、続きからソノまま再開（最初から10秒待たせないダカラ）
+      render();
+      if (timeHintShownChars[code] < totalLen) {
+        timeHintTimer = setTimeout(tick, 3000);
+      }
+    } else {
+      timeHintTimer = setTimeout(tick, 10000);
+    }
   }
 
   const SCORE_SCALE = 100; // スコアを桁の大きいカンジにするための倍率ダカラ
@@ -825,6 +867,7 @@ async function __initGame() {
     const feature = targetLayer.feature;
     const input = document.getElementById('answer-input');
     input.value = '';
+    clearTimeout(timeHintTimer); // 前に選んでたマスのタイマーは止めるダカラ
     if (answeredCodes.has(code)) {
       // 正解済みマスは通過点として選ぶだけダカラ、回答は受け付けないヨ
       delete input.dataset.code;
@@ -834,6 +877,7 @@ async function __initGame() {
       input.placeholder = hintsOn ? placeholderFor(feature) : '市区町村名を入力';
       input.dataset.code = code;
       document.getElementById('hint-text').textContent = '';
+      if (hintsOn && hintAdjacentMode === 'timer') scheduleTimeHint(feature);
     }
     input.focus();
     const c = centroids[code];
@@ -922,6 +966,7 @@ async function __initGame() {
       input.value = '';
       input.placeholder = '市区町村名を入力';
       delete input.dataset.code;
+      clearTimeout(timeHintTimer);
 
       document.getElementById('progress').textContent = `${answeredCodes.size} / ${inRangeCodes.size}`;
       updateBadges();
@@ -971,6 +1016,7 @@ async function __initGame() {
 
   function endGame(reason) {
     if (timerInterval) clearInterval(timerInterval);
+    clearTimeout(timeHintTimer);
     const cleared = answeredCodes.size >= inRangeCodes.size;
     const elapsedSec = Math.round((Date.now() - gameStartTime) / 1000);
     document.getElementById('result-score').textContent = `${answeredCodes.size} / ${inRangeCodes.size}`;
@@ -1176,6 +1222,8 @@ async function __initGame() {
 
     computeInRange();
     answeredCodes = new Set();
+    timeHintShownChars = {};
+    clearTimeout(timeHintTimer);
     score = 0;
     sessionBadgeLog = [];
     startEarnedPrefFull = new Set(earnedPrefFull);
@@ -1252,6 +1300,17 @@ async function __initGame() {
   let isComposing = false;
   document.getElementById('answer-input').addEventListener('compositionstart', () => { isComposing = true; });
   document.getElementById('answer-input').addEventListener('compositionend', () => { isComposing = false; });
+
+  // じわじわヒント：何か入力してる間はカウントを止めて、
+  // 全部消して空になった瞬間からまたカウントし直すダカラ（打っては消してを繰り返しても待たされるように）
+  document.getElementById('answer-input').addEventListener('input', () => {
+    if (isComposing) return;
+    if (hintsOn && hintAdjacentMode === 'timer' && selectedLayer) {
+      clearTimeout(timeHintTimer);
+      const input = document.getElementById('answer-input');
+      if (!input.value && input.dataset.code) scheduleTimeHint(selectedLayer.feature);
+    }
+  });
 
   document.getElementById('answer-input').addEventListener('keydown', (e) => {
     // 日本語入力（IME）変換中のEnterで誤動作しないよう、変換確定中は無視するダカラ

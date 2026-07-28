@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>日本全国市区町村名タイピングゲーム v1.01</title>
+<title>日本全国市区町村名タイピングゲーム v1.02</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <style>
   :root {
@@ -318,7 +318,7 @@
 <div id="app" style="display:none;">
 
   <div id="overlay">
-    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.01</span></h1>
+    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.02</span></h1>
     <div class="desc">地図上の市区町村をクリックして、名前を入力してクダサイ。<br>入力欄が空のときはスペースキーでランダム選択、矢印キーで隣に移動もできるヨ。Tabキーで正解ラベルの表示/非表示も切り替えられるダカラ。<br>下で範囲・制限時間・ヒントを選んでからスタートしてネ。</div>
     <button id="howto-link" type="button">📖 遊び方</button>
 
@@ -1236,6 +1236,18 @@ async function __initGame() {
     } catch (e) { /* 音が鳴らせない環境ダカラ無視するヨ */ }
   }
   document.getElementById('answer-input').addEventListener('input', playTypeSound);
+  // すまほのソフトウェアキーボードだと、スペースキーのpreventDefault()が間に合わず
+  // 一瞬だけスペースが入力欄に残ってしまうコトがあるみたいダカラ、保険として
+  // 入力のたびにスペースだけ即座に取り除くヨ（市区町村名にスペースは含まれないから安全ダカラ）
+  document.getElementById('answer-input').addEventListener('input', (e) => {
+    if (e.target.value.includes(' ') || e.target.value.includes('　')) {
+      const pos = e.target.selectionStart;
+      const before = e.target.value.length;
+      e.target.value = e.target.value.replace(/[ 　]/g, '');
+      const removed = before - e.target.value.length;
+      if (pos != null) e.target.setSelectionRange(pos - removed, pos - removed);
+    }
+  });
 
   let isComposing = false;
   document.getElementById('answer-input').addEventListener('compositionstart', () => { isComposing = true; });

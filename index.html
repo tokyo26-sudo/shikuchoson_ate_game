@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>日本全国市区町村名タイピングゲーム v1.12</title>
+<title>日本全国市区町村名タイピングゲーム v1.13</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <style>
   :root {
@@ -351,7 +351,7 @@
 <div id="app" style="display:none;">
 
   <div id="overlay">
-    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.12</span></h1>
+    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.13</span></h1>
     <div class="desc">地図上の市区町村をクリックして、名前を入力してクダサイ。<br>入力欄が空のときはスペースキーでランダム選択、矢印キーで隣に移動もできるヨ。Tabキーで正解ラベルの表示/非表示も切り替えられるダカラ。<br>下で範囲・制限時間・ヒントを選んでからスタートしてネ。</div>
     <button id="howto-link" type="button">📖 遊び方</button>
 
@@ -687,17 +687,17 @@ async function __initGame() {
     // 'adjacent'（隣接市町村ヒント）：単純カウント（答えた隣接の数そのまま）と
     // 割合ベース（答えた隣接の割合で開く）、大きい方を採用するダカラ
     // 隣接が多い場所は単純カウントの方が伸びが速く、隣接が少ない場所は割合ベースが下支えするヨ
-    if (totalLen <= 1) return 0; // 1文字の市区町村（津市）は絶対に開かないダカラ
     const neighbors = (ADJACENCY[code] || []).filter(n => inRangeCodes.has(n));
     if (neighbors.length === 0) return 0;
     const answeredNeighbors = neighbors.filter(n => answeredCodes.has(n)).length;
     if (answeredNeighbors === 0) return 0;
+    if (answeredNeighbors === neighbors.length) return totalLen; // 隣接を全部囲ったらオセロ式に丸ごと開くダカラ（津市も例外ナシ）
 
     const simple = answeredNeighbors;
     const ratio = answeredNeighbors / neighbors.length;
     const proportional = Math.max(1, Math.floor(totalLen * ratio)); // 1個答えたら最低でも頭文字は保証ダカラ
     const raw = Math.max(simple, proportional);
-    return Math.min(totalLen - 1, raw); // 最後の1文字は絶対に開かないダカラ
+    return Math.min(totalLen - 1, raw); // 全部囲うまでは最後の1文字を死守するダカラ
   }
 
   function placeholderFor(feature) {

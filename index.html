@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>日本全国市区町村名タイピングゲーム v1.15</title>
+<title>日本全国市区町村名タイピングゲーム v1.16</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <style>
   :root {
@@ -351,7 +351,7 @@
 <div id="app" style="display:none;">
 
   <div id="overlay">
-    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.15</span></h1>
+    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.16</span></h1>
     <div class="desc">地図上の市区町村をクリックして、名前を入力してクダサイ。<br>入力欄が空のときはスペースキーでランダム選択、矢印キーで隣に移動もできるヨ。Tabキーで正解ラベルの表示/非表示も切り替えられるダカラ。<br>下で範囲・制限時間・ヒントを選んでからスタートしてネ。</div>
     <button id="howto-link" type="button">📖 遊び方</button>
 
@@ -606,7 +606,6 @@ async function __initGame() {
   let earnedCapitalFull = new Set(), earnedCapitalPartial = new Set();
   let earnedOrdinanceFull = new Set(), earnedOrdinancePartial = new Set();
   let earnedMuniFlags = new Set(); // 市区町村旗バッジ（正解したら即獲得、単一段階）
-  const MUNI_FLAG_ORDER = Object.keys(FLAGS_DATA.municipality || {}).sort(); // 進捗エンコード用
 
   function getMuniFlag(props) {
     if (FLAGS_DATA.municipality && FLAGS_DATA.municipality[props.code]) {
@@ -618,6 +617,13 @@ async function __initGame() {
     }
     return null;
   }
+
+  // 進捗エンコード用の並び順ダカラ。区のフォールバック旗も含めて「旗が取得できる全コード」を対象にしないと、
+  // 政令市の区（個別の旗が無くて市の旗を借りてる場所）の獲得状態がリロードで消えちゃうダカラ、要注意ダヨ
+  const MUNI_FLAG_ORDER = MUNI_GEOJSON.features
+    .filter(f => getMuniFlag(f.properties))
+    .map(f => f.properties.code)
+    .sort();
   let bestScoreEver = 0;
 
   const root = getComputedStyle(document.documentElement);

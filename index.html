@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>日本全国市区町村名タイピングゲーム v1.24</title>
+<title>日本全国市区町村名タイピングゲーム v1.25</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <style>
   :root {
@@ -366,7 +366,7 @@
 <div id="app" style="display:none;">
 
   <div id="overlay">
-    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.24</span></h1>
+    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.25</span></h1>
     <div class="desc">地図上の市区町村をクリックして、名前を入力してクダサイ。<br>入力欄が空のときはスペースキーでランダム選択、矢印キーで隣に移動もできるヨ。Tabキーで正解ラベルの表示/非表示も切り替えられるダカラ。<br>下で範囲・制限時間・ヒントを選んでからスタートしてネ。</div>
     <button id="howto-link" type="button">📖 遊び方</button>
 
@@ -644,6 +644,10 @@ async function __initGame() {
     .map(f => f.properties.code)
     .sort();
   let bestScoreEver = 0;
+  let scoreBests = {}; // modeKey -> 自己ベストスコア（モード別）
+  let rankBests = {}; // modeKey -> { rate, tier }（モード別のランク自己ベスト）
+  let parScore = 0; // 今回の範囲を基準ペース(15秒・ヒント無し)で答えた場合の理論値
+  let rankScore = 0; // ランク判定専用の積算スコア（速度係数上限5.0倍で計算）
 
   const root = getComputedStyle(document.documentElement);
   const landDefault = root.getPropertyValue('--land-default').trim();
@@ -808,6 +812,33 @@ async function __initGame() {
     const safe = Math.max(0.1, elapsedSec); // 0秒割り防止ダカラ
     const coef = BASE_ANSWER_SEC / safe;
     return Math.max(SPEED_COEF_MIN, Math.min(SPEED_COEF_MAX, coef));
+  }
+
+  // ランク（🏆🥇🥈🥉🎖️）判定専用の速度係数ダカラ。スコア表示には使わないヨ。
+  // 上限5.0倍は「3秒/問」で到達（本気を出せば人間でも届くペースとして設定したダカラ）
+  const RANK_SPEED_COEF_MIN = 0.3;
+  const RANK_SPEED_COEF_MAX = 5.0;
+  function rankSpeedCoefFor(elapsedSec) {
+    const safe = Math.max(0.1, elapsedSec);
+    const coef = BASE_ANSWER_SEC / safe;
+    return Math.max(RANK_SPEED_COEF_MIN, Math.min(RANK_SPEED_COEF_MAX, coef));
+  }
+
+  const RANK_CORRECTION_B = 7.0; // 問題数が少ないモードほど厳しくする補正の強さダカラ
+  const RANK_TIERS = [[150, '🏆'], [120, '🥇'], [100, '🥈'], [80, '🥉'], [60, '🎖️']];
+  function rankTierFor(effectiveRate) {
+    for (const [th, emoji] of RANK_TIERS) {
+      if (effectiveRate >= th) return emoji;
+    }
+    return null;
+  }
+
+  function modeKeyFor() {
+    let sub = '';
+    if (currentRange === '地方別') sub = document.getElementById('region-sub-select').value;
+    else if (currentRange === '都道府県別') sub = document.getElementById('pref-sub-select').value;
+    else if (currentRange === '23区+政令市') sub = document.getElementById('city-sub-select').value;
+    return `${currentRange}:${sub}:${hintAdjacentMode}`;
   }
 
   function updateScoreDisplay() {
@@ -1007,6 +1038,9 @@ async function __initGame() {
       const elapsedSec = (now - lastAnswerTime) / 1000;
       const coef = speedCoefFor(elapsedSec);
       const points = Math.max(1, Math.round(scoreFor(feature) * coef));
+      const rankCoef = rankSpeedCoefFor(elapsedSec);
+      const rankPoints = Math.max(1, Math.round(scoreFor(feature) * rankCoef));
+      rankScore += rankPoints;
       lastAnswerTime = now;
       score += points;
       updateScoreDisplay();
@@ -1084,10 +1118,28 @@ async function __initGame() {
     document.getElementById('result-score').textContent = `${answeredCodes.size} / ${inRangeCodes.size}`;
     let statusLabel = cleared ? '全部答えたダカラ！' : (reason === 'giveup' ? 'ギブアップしたダカラ' : '時間切れダカラ');
     const avgScore = answeredCodes.size > 0 ? Math.round(score / answeredCodes.size) : 0;
+
+    // 達成率・ランク（基準タイム15秒・ヒント無しペースからドレだけ上回ったか）ダカラ
+    const rawRate = parScore > 0 ? (rankScore / parScore * 100) : 0;
+    const correction = inRangeCodes.size > 0 ? (1 + RANK_CORRECTION_B / inRangeCodes.size) : 1;
+    const effectiveRate = rawRate / correction;
+    const tier = rankTierFor(effectiveRate);
+
+    const modeKey = modeKeyFor();
+    const prevScoreBest = scoreBests[modeKey] || 0;
+    const isNewScoreBest = score > prevScoreBest;
+    scoreBests[modeKey] = Math.max(prevScoreBest, score);
+    const prevRankBest = rankBests[modeKey];
+    const isNewRankBest = !prevRankBest || effectiveRate > prevRankBest.rate;
+    if (isNewRankBest) rankBests[modeKey] = { rate: effectiveRate, tier };
+    saveModeBests();
+
     document.getElementById('result-detail').innerHTML =
       statusLabel + `<br>解答時間: ${formatDuration(elapsedSec)}` +
-      `<br>スコア: ${score}点` +
-      `<br>（参考）平均スコア: ${avgScore}点/問`;
+      `<br>スコア: ${score}点` + (isNewScoreBest ? '（このモードの自己ベスト更新！）' : `（このモードの自己ベスト: ${scoreBests[modeKey]}点）`) +
+      `<br>（参考）平均スコア: ${avgScore}点/問` +
+      `<br>達成率: ${Math.round(effectiveRate)}%` + (tier ? `　${tier}` : '') +
+      (isNewRankBest ? '（このモードのランク自己ベスト更新！）' : `（このモードのランク自己ベスト: ${Math.round(prevRankBest.rate)}% ${prevRankBest.tier || ''}）`);
 
     copySessionBadgesToResult();
     document.getElementById('result-overlay').classList.add('show');
@@ -1283,6 +1335,12 @@ async function __initGame() {
     unlimitedMode = (currentTime === 0);
 
     computeInRange();
+    parScore = 0;
+    inRangeCodes.forEach(code => {
+      const f = MUNI_GEOJSON.features.find(x => x.properties.code === code);
+      if (f) parScore += basePointsFor(f);
+    });
+    rankScore = 0;
     answeredCodes = new Set();
     timeHintShownChars = {};
     clearTimeout(timeHintTimer);
@@ -1581,6 +1639,23 @@ async function __initGame() {
   }
 
   const LOCAL_STORAGE_KEY = 'shikuchoson_atari_progress_v1';
+  const MODE_BESTS_KEY = 'shikuchoson_atari_mode_bests_v1';
+
+  function saveModeBests() {
+    try {
+      localStorage.setItem(MODE_BESTS_KEY, JSON.stringify({ scoreBests, rankBests }));
+    } catch (e) { /* 保存できない環境ダカラ無視するヨ */ }
+  }
+
+  function loadModeBests() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(MODE_BESTS_KEY) || 'null');
+      if (saved) {
+        scoreBests = saved.scoreBests || {};
+        rankBests = saved.rankBests || {};
+      }
+    } catch (e) { /* 壊れてたら無視して初期状態のママにするダカラ */ }
+  }
 
   function saveProgressToLocalStorage() {
     try {
@@ -1612,6 +1687,7 @@ async function __initGame() {
       }
     } catch (e) { /* 壊れてたら諦めて何もしないダカラ */ }
   }
+  loadModeBests();
   loadProgressFromUrl();
   updateBestScoreDisplay();
 

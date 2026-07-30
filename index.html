@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>日本全国市区町村名タイピングゲーム v1.16</title>
+<title>日本全国市区町村名タイピングゲーム v1.18</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <style>
   :root {
@@ -227,6 +227,11 @@
     font-size: 12px; padding: 6px 14px; border-radius: 14px; border: 1px solid #ccc; background: #fff; cursor: pointer;
   }
   #zukan-body { padding: 16px; overflow-y: auto; }
+  .zukan-progress-map-btn {
+    display: block; width: 100%; margin-bottom: 14px; padding: 10px; font-size: 13px;
+    border: 1px solid var(--teal); border-radius: 8px; background: #e1f5ee; color: #0f6e56; cursor: pointer;
+  }
+  #zukan-progress-map { width: 100%; height: 420px; border-radius: 8px; overflow: hidden; }
   #zukan-footer { padding: 12px 16px; border-top: 1px solid var(--line); text-align: center; }
   #zukan-footer button {
     font-size: 12px; padding: 8px 16px; border-radius: 16px; border: 1px solid var(--teal);
@@ -265,6 +270,11 @@
   .zukan-pref-btn {
     padding: 10px 6px; border-radius: 8px; border: 1px solid #ccc; background: #fff; cursor: pointer; font-size: 13px;
   }
+  .zukan-pref-btn.complete { border-color: var(--gold); background: #fffbea; }
+  .zukan-pref-btn .pref-flag-mini {
+    width: 100%; aspect-ratio: 3/2; margin-bottom: 4px; border-radius: 4px; overflow: hidden; border: 1px solid var(--line);
+  }
+  .zukan-pref-btn .pref-flag-mini svg { width: 100%; height: 100%; display: block; }
   .zukan-pref-btn .count { display: block; font-size: 11px; color: var(--ink-dim); margin-top: 2px; }
   .zukan-muni-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; }
   .zukan-muni-tile { text-align: center; cursor: pointer; }
@@ -351,7 +361,7 @@
 <div id="app" style="display:none;">
 
   <div id="overlay">
-    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.16</span></h1>
+    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.18</span></h1>
     <div class="desc">地図上の市区町村をクリックして、名前を入力してクダサイ。<br>入力欄が空のときはスペースキーでランダム選択、矢印キーで隣に移動もできるヨ。Tabキーで正解ラベルの表示/非表示も切り替えられるダカラ。<br>下で範囲・制限時間・ヒントを選んでからスタートしてネ。</div>
     <button id="howto-link" type="button">📖 遊び方</button>
 
@@ -1612,7 +1622,15 @@ async function __initGame() {
     setTimeout(() => { t.className = ''; }, 1400);
   }
 
+  let zukanMap = null; // 図鑑内「進捗マップ」用のLeafletインスタンス、切り替えるたびに作り直すダカラ
+  let zukanBackHandler = null; // 戻るボタンの遷移先を画面ごとに切り替えるダカラ
+  function cleanupZukanMap() {
+    if (zukanMap) { zukanMap.remove(); zukanMap = null; }
+  }
+
   function renderZukanPrefList() {
+    cleanupZukanMap();
+    zukanBackHandler = null;
     document.getElementById('zukan-title').textContent = '市区町村旗図鑑';
     document.getElementById('zukan-back-btn').style.display = 'none';
     const body = document.getElementById('zukan-body');
@@ -1622,9 +1640,12 @@ async function __initGame() {
       const munis = MUNI_GEOJSON.features.filter(f => f.properties.pref === pref);
       const withData = munis.filter(f => getMuniFlag(f.properties));
       const collected = withData.filter(f => earnedMuniFlags.has(f.properties.code)).length;
+      const isComplete = withData.length > 0 && collected === withData.length; // 旗がある場所を全部集めたらコンプリートダカラ
+      const prefFlagSvg = FLAGS_DATA.pref && FLAGS_DATA.pref[pref];
       const btn = document.createElement('button');
-      btn.className = 'zukan-pref-btn';
-      btn.innerHTML = pref + `<span class="count">${collected}/${munis.length}</span>`;
+      btn.className = 'zukan-pref-btn' + (isComplete ? ' complete' : '');
+      const flagHtml = (isComplete && prefFlagSvg) ? `<div class="pref-flag-mini">${prefFlagSvg}</div>` : '';
+      btn.innerHTML = flagHtml + pref + `<span class="count">${collected}/${munis.length}</span>`;
       btn.addEventListener('click', () => renderZukanMuniGrid(pref));
       grid.appendChild(btn);
     });
@@ -1640,10 +1661,18 @@ async function __initGame() {
   }
 
   function renderZukanMuniGrid(pref) {
+    cleanupZukanMap();
+    zukanBackHandler = renderZukanPrefList;
     document.getElementById('zukan-title').textContent = pref + 'の市区町村';
     document.getElementById('zukan-back-btn').style.display = 'block';
     const body = document.getElementById('zukan-body');
     body.innerHTML = '';
+
+    const progressMapBtn = document.createElement('button');
+    progressMapBtn.className = 'zukan-progress-map-btn';
+    progressMapBtn.textContent = '🗺 進捗マップを見る';
+    progressMapBtn.addEventListener('click', () => renderZukanProgressMap(pref));
+    body.appendChild(progressMapBtn);
 
     // 県旗・県庁所在地旗・（その県にある）政令市旗のセクションダカラ
     const prefRow = document.createElement('div');
@@ -1703,14 +1732,50 @@ async function __initGame() {
     body.appendChild(grid);
   }
 
+  function renderZukanProgressMap(pref) {
+    cleanupZukanMap();
+    zukanBackHandler = () => renderZukanMuniGrid(pref);
+    document.getElementById('zukan-title').textContent = pref + 'の進捗マップ';
+    document.getElementById('zukan-back-btn').style.display = 'block';
+    const body = document.getElementById('zukan-body');
+    body.innerHTML = '';
+
+    const mapDiv = document.createElement('div');
+    mapDiv.id = 'zukan-progress-map';
+    body.appendChild(mapDiv);
+
+    const munis = MUNI_GEOJSON.features.filter(f => f.properties.pref === pref);
+
+    zukanMap = L.map('zukan-progress-map', { zoomControl: true, preferCanvas: true });
+    const layer = L.geoJSON(munis, {
+      style: (feature) => {
+        const p = feature.properties;
+        const collected = getMuniFlag(p) && earnedMuniFlags.has(p.code);
+        return { fillColor: collected ? teal : landDefault, fillOpacity: 0.9, color: '#ffffff', weight: 0.6 };
+      },
+      onEachFeature: (feature, l) => {
+        const p = feature.properties;
+        const svg = getMuniFlag(p);
+        const collected = svg && earnedMuniFlags.has(p.code);
+        if (collected) {
+          l.on('click', () => openBadgeModal(svg, p.pref + p.city, false));
+        }
+      }
+    }).addTo(zukanMap);
+    zukanMap.fitBounds(layer.getBounds(), { padding: [10, 10] });
+  }
+
   document.getElementById('zukan-open-btn').addEventListener('click', () => {
     renderZukanPrefList();
     document.getElementById('zukan-overlay').classList.add('show');
   });
   document.getElementById('zukan-close-btn').addEventListener('click', () => {
+    cleanupZukanMap();
     document.getElementById('zukan-overlay').classList.remove('show');
   });
-  document.getElementById('zukan-back-btn').addEventListener('click', renderZukanPrefList);
+  document.getElementById('zukan-back-btn').addEventListener('click', () => {
+    if (zukanBackHandler) zukanBackHandler();
+  });
 
   let namelistSort = 'yomi';
 

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>日本全国市区町村名タイピングゲーム v1.23</title>
+<title>日本全国市区町村名タイピングゲーム v1.24</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <style>
   :root {
@@ -366,7 +366,7 @@
 <div id="app" style="display:none;">
 
   <div id="overlay">
-    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.23</span></h1>
+    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.24</span></h1>
     <div class="desc">地図上の市区町村をクリックして、名前を入力してクダサイ。<br>入力欄が空のときはスペースキーでランダム選択、矢印キーで隣に移動もできるヨ。Tabキーで正解ラベルの表示/非表示も切り替えられるダカラ。<br>下で範囲・制限時間・ヒントを選んでからスタートしてネ。</div>
     <button id="howto-link" type="button">📖 遊び方</button>
 
@@ -1288,6 +1288,8 @@ async function __initGame() {
     clearTimeout(timeHintTimer);
     score = 0;
     sessionBadgeLog = [];
+    silentlyBackfillBadges();
+    saveProgressToLocalStorage();
     startEarnedPrefFull = new Set(earnedPrefFull);
     startEarnedPrefPartial = new Set(earnedPrefPartial);
     startEarnedCapitalFull = new Set(earnedCapitalFull);
@@ -1871,6 +1873,56 @@ async function __initGame() {
   document.getElementById('namelist-close-btn').addEventListener('click', () => {
     document.getElementById('namelist-overlay').classList.remove('show');
   });
+
+  // ゲーム開始前に「本当は前から達成済みだった」分を静かに反映しとくダカラ。
+  // コレをやらないと、次に1問正解した瞬間に過去分がドバっと「今回の成果」みたいに出ちゃうカラ
+  function silentlyBackfillBadges() {
+    Object.keys(prefGroups).forEach(pref => {
+      if (earnedPrefFull.has(pref)) return;
+      if (!FLAGS_DATA.pref[pref]) return;
+      const total = prefPopTotal[pref];
+      const answeredPop = prefGroups[pref].reduce((sum, code) => {
+        if (!earnedMuniFlags.has(code)) return sum;
+        const f = MUNI_GEOJSON.features.find(x => x.properties.code === code);
+        return sum + (f.properties.population || 0);
+      }, 0);
+      const allDone = prefGroups[pref].every(code => earnedMuniFlags.has(code));
+      if (allDone) earnedPrefFull.add(pref);
+      else if (total && answeredPop / total >= 0.8) earnedPrefPartial.add(pref);
+    });
+    Object.keys(ordinanceGroups).forEach(city => {
+      if (earnedOrdinanceFull.has(city)) return;
+      if (!FLAGS_DATA.ordinance[city]) return;
+      const any = ordinanceGroups[city].some(code => earnedMuniFlags.has(code));
+      const all = ordinanceGroups[city].every(code => earnedMuniFlags.has(code));
+      if (all) earnedOrdinanceFull.add(city);
+      else if (any) earnedOrdinancePartial.add(city);
+    });
+    Object.keys(prefGroups).forEach(pref => {
+      if (earnedCapitalFull.has(pref)) return;
+      const total = prefPopTotal[pref];
+      if (!total) return;
+      const cityName = FLAGS_DATA.capitalIsOrdinance[pref] || FLAGS_DATA.capitalCityNameByPref[pref];
+      const svg = cityName && (FLAGS_DATA.ordinance[cityName] || FLAGS_DATA.capital[cityName]);
+      if (!svg) return;
+      const answeredPop = prefGroups[pref].reduce((sum, code) => {
+        if (!earnedMuniFlags.has(code)) return sum;
+        const f = MUNI_GEOJSON.features.find(x => x.properties.code === code);
+        return sum + (f.properties.population || 0);
+      }, 0);
+      const popOver50 = (answeredPop / total) > 0.5;
+      const ordinanceCity = FLAGS_DATA.capitalIsOrdinance[pref];
+      let capitalDone;
+      if (ordinanceCity) {
+        capitalDone = ordinanceGroups[ordinanceCity] && ordinanceGroups[ordinanceCity].every(code => earnedMuniFlags.has(code));
+      } else {
+        const capitalCode = capitalCodeByPref[pref];
+        capitalDone = capitalCode && earnedMuniFlags.has(capitalCode);
+      }
+      if (capitalDone && popOver50) earnedCapitalFull.add(pref);
+      else if (capitalDone || popOver50) earnedCapitalPartial.add(pref);
+    });
+  }
 
   function updateBadges() {
     let newlyEarned = [];

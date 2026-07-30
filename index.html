@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>日本全国市区町村名タイピングゲーム v1.20</title>
+<title>日本全国市区町村名タイピングゲーム v1.22</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <style>
   :root {
@@ -366,7 +366,7 @@
 <div id="app" style="display:none;">
 
   <div id="overlay">
-    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.20</span></h1>
+    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.22</span></h1>
     <div class="desc">地図上の市区町村をクリックして、名前を入力してクダサイ。<br>入力欄が空のときはスペースキーでランダム選択、矢印キーで隣に移動もできるヨ。Tabキーで正解ラベルの表示/非表示も切り替えられるダカラ。<br>下で範囲・制限時間・ヒントを選んでからスタートしてネ。</div>
     <button id="howto-link" type="button">📖 遊び方</button>
 
@@ -629,6 +629,10 @@ async function __initGame() {
     // 政令市の区で個別の旗が無い場合は、市そのものの旗を代わりに使うダカラ
     if (props.county_or_city && FLAGS_DATA.ordinance && FLAGS_DATA.ordinance[props.county_or_city]) {
       return FLAGS_DATA.ordinance[props.county_or_city];
+    }
+    // 北方領土の6村みたいに、市区町村旗もソレ以外のフォールバックも無い場所は、県旗を代わりに使うダカラ
+    if (props.pref && FLAGS_DATA.pref && FLAGS_DATA.pref[props.pref]) {
+      return FLAGS_DATA.pref[props.pref];
     }
     return null;
   }
@@ -1716,8 +1720,7 @@ async function __initGame() {
     munis.forEach(f => {
       const p = f.properties;
       const svg = getMuniFlag(p);
-      const hasFlag = !!svg; // 旗データがソモソモ存在するかダカラ
-      const collected = hasFlag && earnedMuniFlags.has(p.code);
+      const collected = svg && earnedMuniFlags.has(p.code);
       const tile = document.createElement('div');
       tile.className = 'zukan-muni-tile' + (collected ? '' : ' nodata');
       const box = document.createElement('div');
@@ -1726,8 +1729,7 @@ async function __initGame() {
       tile.appendChild(box);
       const label = document.createElement('div');
       label.className = 'label';
-      // 旗が存在しない場所（北方領土の6村など）は、隠す意味が無いから名前をソノまま出すダカラ
-      label.textContent = collected ? p.city : (hasFlag ? '？？？' : p.city);
+      label.textContent = collected ? p.city : '？？？';
       tile.appendChild(label);
       if (collected) {
         tile.addEventListener('click', () => openBadgeModal(svg, p.pref + p.city, false));

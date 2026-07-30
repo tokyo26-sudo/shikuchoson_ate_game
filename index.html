@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>日本全国市区町村名タイピングゲーム v1.18</title>
+<title>日本全国市区町村名タイピングゲーム v1.19</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <style>
   :root {
@@ -232,6 +232,11 @@
     border: 1px solid var(--teal); border-radius: 8px; background: #e1f5ee; color: #0f6e56; cursor: pointer;
   }
   #zukan-progress-map { width: 100%; height: 420px; border-radius: 8px; overflow: hidden; }
+  .zukan-progress-badge-row {
+    display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px;
+    padding-bottom: 12px; border-bottom: 1px solid var(--line);
+  }
+  .zukan-progress-badge-row .badge-icon { width: 48px; height: 32px; }
   #zukan-footer { padding: 12px 16px; border-top: 1px solid var(--line); text-align: center; }
   #zukan-footer button {
     font-size: 12px; padding: 8px 16px; border-radius: 16px; border: 1px solid var(--teal);
@@ -361,7 +366,7 @@
 <div id="app" style="display:none;">
 
   <div id="overlay">
-    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.18</span></h1>
+    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.19</span></h1>
     <div class="desc">地図上の市区町村をクリックして、名前を入力してクダサイ。<br>入力欄が空のときはスペースキーでランダム選択、矢印キーで隣に移動もできるヨ。Tabキーで正解ラベルの表示/非表示も切り替えられるダカラ。<br>下で範囲・制限時間・ヒントを選んでからスタートしてネ。</div>
     <button id="howto-link" type="button">📖 遊び方</button>
 
@@ -1740,11 +1745,26 @@ async function __initGame() {
     const body = document.getElementById('zukan-body');
     body.innerHTML = '';
 
+    const munis = MUNI_GEOJSON.features.filter(f => f.properties.pref === pref);
+
+    // 獲得済みの旗バッジをズラっと並べるダカラ
+    const collectedMunis = munis.filter(f => {
+      const p = f.properties;
+      return getMuniFlag(p) && earnedMuniFlags.has(p.code);
+    });
+    if (collectedMunis.length) {
+      const badgeRow = document.createElement('div');
+      badgeRow.className = 'zukan-progress-badge-row';
+      collectedMunis.forEach(f => {
+        const p = f.properties;
+        badgeRow.appendChild(renderBadge(getMuniFlag(p), 'muni', p.city, false));
+      });
+      body.appendChild(badgeRow);
+    }
+
     const mapDiv = document.createElement('div');
     mapDiv.id = 'zukan-progress-map';
     body.appendChild(mapDiv);
-
-    const munis = MUNI_GEOJSON.features.filter(f => f.properties.pref === pref);
 
     zukanMap = L.map('zukan-progress-map', { zoomControl: true, preferCanvas: true });
     const layer = L.geoJSON(munis, {
@@ -1757,6 +1777,7 @@ async function __initGame() {
         const p = feature.properties;
         const svg = getMuniFlag(p);
         const collected = svg && earnedMuniFlags.has(p.code);
+        l.bindTooltip(p.city, { permanent: true, direction: 'center', className: 'answered-label', opacity: 0.9 });
         if (collected) {
           l.on('click', () => openBadgeModal(svg, p.pref + p.city, false));
         }

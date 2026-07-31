@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>日本全国市区町村名タイピングゲーム v1.34</title>
+<title>日本全国市区町村名タイピングゲーム v1.35</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <style>
   :root {
@@ -366,7 +366,7 @@
 <div id="app" style="display:none;">
 
   <div id="overlay">
-    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.34</span></h1>
+    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.35</span></h1>
     <div class="desc">地図上の市区町村をクリックして、名前を入力してクダサイ。<br>入力欄が空のときはスペースキーでランダム選択、矢印キーで隣に移動もできるヨ。Tabキーで正解ラベルの表示/非表示も切り替えられるダカラ。<br>下で範囲・制限時間・ヒントを選んでからスタートしてネ。</div>
     <button id="howto-link" type="button">📖 遊び方</button>
 
@@ -410,6 +410,7 @@
     <div id="progress-save-row">
       <span id="best-score-display"></span>
       <button id="zukan-open-btn">市区町村旗図鑑を見る</button>
+      <button id="gps-visit-btn">📍 現在地から旗をゲット</button>
     </div>
   </div>
 
@@ -1299,6 +1300,75 @@ async function __initGame() {
     }
     return n ? [sx / n, sy / n] : null;
   }
+
+  // レイキャスティング法で「点がポリゴンの中にあるか」判定するダカラ（穴（内水面等）も考慮するヨ）
+  function pointInRing(lng, lat, ring) {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const xi = ring[i][0], yi = ring[i][1];
+      const xj = ring[j][0], yj = ring[j][1];
+      const intersect = ((yi > lat) !== (yj > lat)) &&
+        (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+  function pointInPolygonRings(lng, lat, rings) {
+    if (!pointInRing(lng, lat, rings[0])) return false; // 外側の輪の中に無いならソレまでダカラ
+    for (let i = 1; i < rings.length; i++) {
+      if (pointInRing(lng, lat, rings[i])) return false; // 穴（内水面）の中はダメダカラ
+    }
+    return true;
+  }
+  function findMuniByLatLng(lat, lng) {
+    for (const f of MUNI_GEOJSON.features) {
+      const geom = f.geometry;
+      if (geom.type === 'Polygon') {
+        if (pointInPolygonRings(lng, lat, geom.coordinates)) return f;
+      } else if (geom.type === 'MultiPolygon') {
+        for (const poly of geom.coordinates) {
+          if (pointInPolygonRings(lng, lat, poly)) return f;
+        }
+      }
+    }
+    return null;
+  }
+
+  document.getElementById('gps-visit-btn').addEventListener('click', () => {
+    if (!navigator.geolocation) {
+      showToast('コノ端末は位置情報に対応してないダカラ…', true);
+      return;
+    }
+    showToast('現在地を取得中ダカラ…', false);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        const feature = findMuniByLatLng(latitude, longitude);
+        if (!feature) {
+          showToast('現在地が市区町村の範囲内で見つからなかったダカラ…（海の上とか国外かもネ）', true);
+          return;
+        }
+        const p = feature.properties;
+        const svg = getMuniFlag(p);
+        if (!svg) {
+          showToast(p.city + 'は旗データが無い場所ダカラ、獲得できないヨ…', true);
+          return;
+        }
+        if (earnedMuniFlags.has(p.code)) {
+          showToast('📍 今いる「' + p.city + '」は、もう獲得済みダカラ！', false);
+          return;
+        }
+        earnedMuniFlags.add(p.code);
+        silentlyBackfillBadges(); // ソレで県コンプリート等になったらコッチも静かに反映するダカラ
+        saveProgressToLocalStorage();
+        showToast('📍 現在地は「' + p.city + '」ダカラ！旗ゲットしたヨ！', false);
+      },
+      (err) => {
+        showToast('位置情報を取得できなかったダカラ…（許可されてないカモ）', true);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  });
 
   function initMapIfNeeded() {
     if (map) return;

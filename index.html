@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>日本全国市区町村名タイピングゲーム v1.27</title>
+<title>日本全国市区町村名タイピングゲーム v1.33</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <style>
   :root {
@@ -366,7 +366,7 @@
 <div id="app" style="display:none;">
 
   <div id="overlay">
-    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.27</span></h1>
+    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.33</span></h1>
     <div class="desc">地図上の市区町村をクリックして、名前を入力してクダサイ。<br>入力欄が空のときはスペースキーでランダム選択、矢印キーで隣に移動もできるヨ。Tabキーで正解ラベルの表示/非表示も切り替えられるダカラ。<br>下で範囲・制限時間・ヒントを選んでからスタートしてネ。</div>
     <button id="howto-link" type="button">📖 遊び方</button>
 
@@ -647,7 +647,8 @@ async function __initGame() {
   let scoreBests = {}; // modeKey -> 自己ベストスコア（モード別）
   let rankBests = {}; // modeKey -> { rate, tier }（モード別のランク自己ベスト）
   let parScore = 0; // 今回の範囲を基準ペース(15秒・ヒント無し)で答えた場合の理論値
-  let rankScore = 0; // ランク判定専用の積算スコア（速度係数上限5.0倍で計算）
+  let rankBaseSum = 0; // ランク判定用、係数を掛ける前のスコア合計（ヒント減点は反映済みダカラ）
+  let firstQuestionStartTime = 0; // 平均ペース計算の起点（初回ジャンプ直後、地図アニメの待ち時間を含まないダカラ）
 
   const root = getComputedStyle(document.documentElement);
   const landDefault = root.getPropertyValue('--land-default').trim();
@@ -814,17 +815,20 @@ async function __initGame() {
     return Math.max(SPEED_COEF_MIN, Math.min(SPEED_COEF_MAX, coef));
   }
 
-  // ランク（🏆🥇🥈🥉🎖️）判定専用の速度係数ダカラ。スコア表示には使わないヨ。
+  // ランク（🏆🥇🥈🥉🎖️）判定専用の速度係数の上限・下限ダカラ。スコア表示には使わないヨ。
   // 上限5.0倍は「3秒/問」で到達（本気を出せば人間でも届くペースとして設定したダカラ）
+  // トータルの平均ペースに対して1回だけ掛けるダカラ、endGame()内でマトメて計算するヨ
   const RANK_SPEED_COEF_MIN = 0.3;
   const RANK_SPEED_COEF_MAX = 5.0;
-  function rankSpeedCoefFor(elapsedSec) {
-    const safe = Math.max(0.1, elapsedSec);
-    const coef = BASE_ANSWER_SEC / safe;
-    return Math.max(RANK_SPEED_COEF_MIN, Math.min(RANK_SPEED_COEF_MAX, coef));
-  }
 
-  const RANK_CORRECTION_B = 7.0; // 問題数が少ないモードほど厳しくする補正の強さダカラ
+  // 問題数nに対して「基準ペース(秒/問)=15-840/(70+n)で🏆」になるよう逆算した漸近カーブダカラ
+  // 問題数が少ないほど3秒台のシビアなラインで、増えるほど基準タイム15秒に滑らかに近づいていくヨ
+  const RANK_ASYMPTOTE_K = 70;
+  function rankCorrectionFor(n) {
+    const targetPace = 15 - 12 * RANK_ASYMPTOTE_K / (RANK_ASYMPTOTE_K + n);
+    const avgCoefAtTarget = Math.max(RANK_SPEED_COEF_MIN, Math.min(RANK_SPEED_COEF_MAX, BASE_ANSWER_SEC / targetPace));
+    return (avgCoefAtTarget * 100) / 150; // 150%(🏆ライン)がちょうどtargetPaceで達成される倍率ダカラ
+  }
   const RANK_TIERS = [[150, '🏆'], [120, '🥇'], [100, '🥈'], [80, '🥉'], [60, '🎖️']];
   function rankTierFor(effectiveRate) {
     for (const [th, emoji] of RANK_TIERS) {
@@ -978,10 +982,18 @@ async function __initGame() {
       const target = L.latLng(c[1], c[0]);
       if (opts.zoom) {
         const shifted = offsetLatLngUp(target, opts.zoom);
-        map.flyTo(shifted, opts.zoom, { animate: true, duration: 0.4 });
+        if (opts.instant) {
+          map.setView(shifted, opts.zoom, { animate: false });
+        } else {
+          map.flyTo(shifted, opts.zoom, { animate: true, duration: 0.4 });
+        }
       } else {
         const shifted = offsetLatLngUp(target, map.getZoom());
-        map.panTo(shifted, { animate: true, duration: 0.3 });
+        if (opts.instant) {
+          map.panTo(shifted, { animate: false });
+        } else {
+          map.panTo(shifted, { animate: true, duration: 0.3 });
+        }
       }
     }
   }
@@ -1038,9 +1050,7 @@ async function __initGame() {
       const elapsedSec = (now - lastAnswerTime) / 1000;
       const coef = speedCoefFor(elapsedSec);
       const points = Math.max(1, Math.round(scoreFor(feature) * coef));
-      const rankCoef = rankSpeedCoefFor(elapsedSec);
-      const rankPoints = Math.max(1, Math.round(scoreFor(feature) * rankCoef));
-      rankScore += rankPoints;
+      rankBaseSum += scoreFor(feature); // ランク判定は平均ペースで最後にまとめて係数を掛けるダカラ
       lastAnswerTime = now;
       score += points;
       updateScoreDisplay();
@@ -1120,26 +1130,39 @@ async function __initGame() {
     const avgScore = answeredCodes.size > 0 ? Math.round(score / answeredCodes.size) : 0;
 
     // 達成率・ランク（基準タイム15秒・ヒント無しペースからドレだけ上回ったか）ダカラ
-    const rawRate = parScore > 0 ? (rankScore / parScore * 100) : 0;
-    const correction = inRangeCodes.size > 0 ? (1 + RANK_CORRECTION_B / inRangeCodes.size) : 1;
-    const effectiveRate = rawRate / correction;
-    const tier = rankTierFor(effectiveRate);
+    // 毎問キッチリじゃなくて、トータルの平均ペースで判定するヨ
+    const answeredCount = answeredCodes.size;
+    let rawRate = 0;
+    if (answeredCount > 0 && parScore > 0) {
+      const totalAnsweringSec = Math.max(0.1, (lastAnswerTime - firstQuestionStartTime) / 1000);
+      const avgSec = totalAnsweringSec / answeredCount;
+      const avgRankCoef = Math.max(RANK_SPEED_COEF_MIN, Math.min(RANK_SPEED_COEF_MAX, BASE_ANSWER_SEC / avgSec));
+      rawRate = (rankBaseSum * avgRankCoef) / parScore * 100;
+    }
+    const correction = inRangeCodes.size > 0 ? rankCorrectionFor(inRangeCodes.size) : 1;
+    const rankEligible = reason !== 'giveup'; // ギブアップだけランク対象外、時間切れは対象ダカラ
+    const effectiveRate = rankEligible ? (rawRate / correction) : 0;
+    const tier = rankEligible ? rankTierFor(effectiveRate) : null;
 
     const modeKey = modeKeyFor();
     const prevScoreBest = scoreBests[modeKey] || 0;
     const isNewScoreBest = score > prevScoreBest;
     scoreBests[modeKey] = Math.max(prevScoreBest, score);
     const prevRankBest = rankBests[modeKey];
-    const isNewRankBest = !prevRankBest || effectiveRate > prevRankBest.rate;
+    const isNewRankBest = rankEligible && (!prevRankBest || effectiveRate > prevRankBest.rate);
     if (isNewRankBest) rankBests[modeKey] = { rate: effectiveRate, tier };
     saveModeBests();
+
+    const rankLine = rankEligible
+      ? (`<br>達成率: ${Math.round(effectiveRate)}%` + (tier ? `　${tier}` : '') +
+         (isNewRankBest ? '（このモードのランク自己ベスト更新！）' : (prevRankBest ? `（このモードのランク自己ベスト: ${Math.round(prevRankBest.rate)}% ${prevRankBest.tier || ''}）` : '')))
+      : '<br>（ギブアップしたのでランクは対象外ダヨ）';
 
     document.getElementById('result-detail').innerHTML =
       statusLabel + `<br>解答時間: ${formatDuration(elapsedSec)}` +
       `<br>スコア: ${score}点` + (isNewScoreBest ? '（このモードの自己ベスト更新！）' : `（このモードの自己ベスト: ${scoreBests[modeKey]}点）`) +
       `<br>（参考）平均スコア: ${avgScore}点/問` +
-      `<br>達成率: ${Math.round(effectiveRate)}%` + (tier ? `　${tier}` : '') +
-      (isNewRankBest ? '（このモードのランク自己ベスト更新！）' : `（このモードのランク自己ベスト: ${Math.round(prevRankBest.rate)}% ${prevRankBest.tier || ''}）`);
+      rankLine;
 
     copySessionBadgesToResult();
     document.getElementById('result-overlay').classList.add('show');
@@ -1314,14 +1337,14 @@ async function __initGame() {
 
   function fitToRange() {
     if (currentRange === '全国') {
-      map.setView([36.5, 138], 6);
+      map.setView([36.5, 138], 6, { animate: false });
       return;
     }
     const layers = [];
     geoLayer.eachLayer(l => { if (inRangeCodes.has(l.feature.properties.code)) layers.push(l); });
     if (layers.length) {
       const group = L.featureGroup(layers);
-      map.fitBounds(group.getBounds(), { padding: [20, 20] });
+      map.fitBounds(group.getBounds(), { padding: [20, 20], animate: false });
     }
   }
 
@@ -1341,7 +1364,7 @@ async function __initGame() {
       const f = MUNI_GEOJSON.features.find(x => x.properties.code === code);
       if (f) parScore += basePointsFor(f);
     });
-    rankScore = 0;
+    rankBaseSum = 0;
     answeredCodes = new Set();
     timeHintShownChars = {};
     clearTimeout(timeHintTimer);
@@ -1379,7 +1402,9 @@ async function __initGame() {
     geoLayer.eachLayer(l => l.setStyle(styleFeature(l.feature)));
     fitToRange();
     startTimer();
-    jumpRandom(); // 最初から広い範囲の全体図だと分かりづらいから、ランダムで1つ選んだ状態でスタートするダカラ
+    jumpRandom(true); // 最初から広い範囲の全体図だと分かりづらいから、ランダムで1つ選んだ状態でスタートするダカラ（アニメ無しで即表示）
+    lastAnswerTime = Date.now(); // 地図移動の待ち時間を1問目の回答タイムに含めないようにするダカラ
+    firstQuestionStartTime = lastAnswerTime; // ランクの平均ペース計算の起点ダカラ
   });
 
   let audioCtx = null;
@@ -2085,11 +2110,11 @@ async function __initGame() {
     }
   }
 
-  function jumpRandom() {
+  function jumpRandom(instant) {
     const candidates = [...inRangeCodes].filter(c => !answeredCodes.has(c));
     if (!candidates.length) return;
     const pick = candidates[Math.floor(Math.random() * candidates.length)];
-    selectByCode(pick, { zoom: 10 });
+    selectByCode(pick, { zoom: 10, instant: !!instant });
   }
 
   function moveDirectional(key) {

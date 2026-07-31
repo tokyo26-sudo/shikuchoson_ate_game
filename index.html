@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>日本全国市区町村名タイピングゲーム v1.38</title>
+<title>日本全国市区町村名タイピングゲーム v1.40</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <style>
   :root {
@@ -145,6 +145,13 @@
       padding: 10px; z-index: 2600;
     }
     #action-buttons button { font-size: 11px; padding: 6px 4px; white-space: nowrap; }
+    #gps-card {
+      position: fixed; top: 16px; left: calc(50% - 260px);
+      width: 90px; display: flex; flex-direction: column; gap: 6px;
+      background: #fff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+      padding: 10px; z-index: 2600;
+    }
+    #gps-card button { font-size: 11px; padding: 6px 4px; white-space: nowrap; width: 100%; }
   }
   #pop-toggle {
     display: flex; align-items: center; gap: 4px; font-size: 12px; padding: 8px 12px;
@@ -366,7 +373,7 @@
 <div id="app" style="display:none;">
 
   <div id="overlay">
-    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.38</span></h1>
+    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.40</span></h1>
     <div class="desc">地図上の市区町村をクリックして、名前を入力してクダサイ。<br>入力欄が空のときはスペースキーでランダム選択、矢印キーで隣に移動もできるヨ。Tabキーで正解ラベルの表示/非表示も切り替えられるダカラ。<br>下で範囲・制限時間・ヒントを選んでからスタートしてネ。</div>
     <button id="howto-link" type="button">📖 遊び方</button>
 
@@ -426,14 +433,15 @@
         <button id="pop-toggle" style="display:none;"><span>&#128202;</span> 人口</button>
         <button id="label-toggle" class="active"><span>&#127991;</span> ラベル</button>
         <button id="name-list-btn" style="display:none;">&#128203; 名前リスト</button>
-        <button id="gps-answer-btn" style="display:none;">&#128205; 現在地で解答</button>
-        <button id="photo-answer-btn" style="display:none;">&#128247; 写真で解答</button>
+        <button id="gps-answer-btn" style="display:none;">&#128205;現在地</button>
+        <button id="photo-answer-btn" style="display:none;" title="位置情報（GPS）が付いてる写真を選ぶと、撮影場所を解答扱いにできるヨ">&#128247;写真</button>
         <input type="file" id="photo-answer-input" accept="image/*" style="display:none;">
         <button id="giveup-btn" style="display:none;">ギブアップ</button>
       </div>
     </div>
     <span id="hint-text">地図をクリックして市区町村を選んでね</span>
   </div>
+  <div id="gps-card" style="display:none;"></div>
 
   <div id="map">
     <div id="badge-overlay"></div>
@@ -1380,6 +1388,7 @@ async function __initGame() {
   });
 
   document.getElementById('photo-answer-btn').addEventListener('click', () => {
+    showToast('📷 位置情報が付いてる写真を選んでクダサイダカラ', false);
     document.getElementById('photo-answer-input').click();
   });
   document.getElementById('photo-answer-input').addEventListener('change', async (e) => {
@@ -1488,6 +1497,13 @@ async function __initGame() {
     document.getElementById('giveup-btn').style.display = 'block';
     document.getElementById('gps-answer-btn').style.display = 'block';
     document.getElementById('photo-answer-btn').style.display = 'block';
+    if (window.matchMedia('(min-width: 481px)').matches) {
+      // PC版だけ、現在地・写真ボタンを入力カードの左の別カードに移動するダカラ（スマホ版はaction-buttons内のママにするヨ）
+      const gpsCard = document.getElementById('gps-card');
+      gpsCard.appendChild(document.getElementById('gps-answer-btn'));
+      gpsCard.appendChild(document.getElementById('photo-answer-btn'));
+      gpsCard.style.display = 'flex';
+    }
     document.getElementById('progress').textContent = `0 / ${inRangeCodes.size}`;
     updateScoreDisplay();
 
@@ -2252,6 +2268,7 @@ async function __initGame() {
   document.getElementById('restart-btn').addEventListener('click', () => {
     document.getElementById('result-overlay').classList.remove('show');
     document.getElementById('top-panel').style.display = 'none';
+    document.getElementById('gps-card').style.display = 'none';
     if (pendingSharedCfg) {
       applySettingsToForm(pendingSharedCfg);
       pendingSharedCfg = null;

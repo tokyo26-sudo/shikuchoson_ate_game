@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>日本全国市区町村名タイピングゲーム v1.41</title>
+<title>日本全国市区町村名タイピングゲーム v1.42</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <style>
   :root {
@@ -373,7 +373,7 @@
 <div id="app" style="display:none;">
 
   <div id="overlay">
-    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.41</span></h1>
+    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.42</span></h1>
     <div class="desc">地図上の市区町村をクリックして、名前を入力してクダサイ。<br>入力欄が空のときはスペースキーでランダム選択、矢印キーで隣に移動もできるヨ。Tabキーで正解ラベルの表示/非表示も切り替えられるダカラ。<br>下で範囲・制限時間・ヒントを選んでからスタートしてネ。</div>
     <button id="howto-link" type="button">📖 遊び方</button>
 
@@ -869,6 +869,10 @@ async function __initGame() {
     layer.bindTooltip(feature.properties.city, {
       permanent: true, direction: 'center', className: 'answered-label', opacity: 0.9
     });
+    // 飛地・離島がある市区町村ダカラ、Leafletの自動配置（全部の島込みのバウンディングボックス中心）だと
+    // 海のマン中に出ちゃうコトがあるヨ。ダカラ面積最大の輪の重心（centroids）に明示的に開き直すネ
+    const c = centroids[code];
+    if (c) layer.openTooltip(L.latLng(c[1], c[0]));
   }
 
   function toggleLabels() {
@@ -1305,20 +1309,45 @@ async function __initGame() {
     copyToClipboard(url, '共有URLをコピーしたダカラ');
   });
 
-  function computeCentroid(geom) {
-    let sx = 0, sy = 0, n = 0;
-    const walk = (coords) => {
-      if (typeof coords[0] === 'number') { sx += coords[0]; sy += coords[1]; n++; }
-      else coords.forEach(walk);
-    };
-    if (geom.type === 'Polygon') walk(geom.coordinates[0]);
-    else if (geom.type === 'MultiPolygon') {
-      // 一番大きい輪（面積近似=点数最大）を代表点にする
-      let best = geom.coordinates[0][0], bestLen = best.length;
-      geom.coordinates.forEach(poly => { if (poly[0].length > bestLen) { best = poly[0]; bestLen = poly[0].length; } });
-      walk(best);
+  // シューレース公式で輪（外周）の符号付き面積を計算するダカラ（絶対値を取れば面積そのもの）
+  function ringSignedArea(ring) {
+    let a = 0;
+    for (let i = 0, n = ring.length, j = n - 1; i < n; j = i++) {
+      a += ring[j][0] * ring[i][1] - ring[i][0] * ring[j][1];
     }
-    return n ? [sx / n, sy / n] : null;
+    return a / 2;
+  }
+
+  // 輪の「面積重心」を計算するダカラ（頂点の単純平均じゃなくて、ちゃんと面積で重み付けした中心点ネ）
+  function ringCentroid(ring) {
+    let cx = 0, cy = 0, area = ringSignedArea(ring);
+    if (Math.abs(area) < 1e-12) {
+      // 面積がほぼ0（退化した輪）の時は頂点の単純平均でフォールバックするヨ
+      let sx = 0, sy = 0;
+      for (const [x, y] of ring) { sx += x; sy += y; }
+      return [sx / ring.length, sy / ring.length];
+    }
+    for (let i = 0, n = ring.length, j = n - 1; i < n; j = i++) {
+      const cross = ring[j][0] * ring[i][1] - ring[i][0] * ring[j][1];
+      cx += (ring[j][0] + ring[i][0]) * cross;
+      cy += (ring[j][1] + ring[i][1]) * cross;
+    }
+    return [cx / (6 * area), cy / (6 * area)];
+  }
+
+  function computeCentroid(geom) {
+    if (geom.type === 'Polygon') return ringCentroid(geom.coordinates[0]);
+    if (geom.type === 'MultiPolygon') {
+      // 飛地・離島がある市区町村ダカラ、一番「実面積」が大きい輪（＝本土側であるコトが多い）を代表点に選ぶヨ
+      // （頂点数の多さで代用すると、複雑な形の小さい島が選ばれちゃうコトがあるダカラ、ちゃんと面積計算するネ）
+      let best = geom.coordinates[0][0], bestArea = Math.abs(ringSignedArea(best));
+      geom.coordinates.forEach(poly => {
+        const a = Math.abs(ringSignedArea(poly[0]));
+        if (a > bestArea) { best = poly[0]; bestArea = a; }
+      });
+      return ringCentroid(best);
+    }
+    return null;
   }
 
   // レイキャスティング法で「点がポリゴンの中にあるか」判定するダカラ（穴（内水面等）も考慮するヨ）
@@ -2006,6 +2035,8 @@ async function __initGame() {
         const collected = svg && earnedMuniFlags.has(p.code);
         if (collected) {
           l.bindTooltip(p.city, { permanent: true, direction: 'center', className: 'answered-label', opacity: 0.9 });
+          const c = computeCentroid(feature.geometry);
+          if (c) l.openTooltip(L.latLng(c[1], c[0]));
         }
         if (collected) {
           l.on('click', () => openBadgeModal(svg, p.pref + p.city, false));

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>日本全国市区町村名タイピングゲーム v1.43</title>
+<title>日本全国市区町村名タイピングゲーム v1.47</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <style>
   :root {
@@ -152,6 +152,7 @@
       padding: 10px; z-index: 2600;
     }
     #gps-card button { font-size: 11px; padding: 6px 4px; white-space: nowrap; width: 100%; }
+    #gps-card #name-list-btn { font-size: 9.5px; }
   }
   #pop-toggle {
     display: flex; align-items: center; gap: 4px; font-size: 12px; padding: 8px 12px;
@@ -373,7 +374,7 @@
 <div id="app" style="display:none;">
 
   <div id="overlay">
-    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.43</span></h1>
+    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.47</span></h1>
     <div class="desc">地図上の市区町村をクリックして、名前を入力してクダサイ。<br>入力欄が空のときはスペースキーでランダム選択、矢印キーで隣に移動もできるヨ。Tabキーで正解ラベルの表示/非表示も切り替えられるダカラ。<br>下で範囲・制限時間・ヒントを選んでからスタートしてネ。</div>
     <button id="howto-link" type="button">📖 遊び方</button>
 
@@ -432,7 +433,7 @@
       <div id="action-buttons">
         <button id="pop-toggle" style="display:none;"><span>&#128202;</span> 人口</button>
         <button id="label-toggle" class="active"><span>&#127991;</span> ラベル</button>
-        <button id="name-list-btn" style="display:none;">&#128203; 名前リスト</button>
+        <button id="name-list-btn" style="display:none;">地名リスト</button>
         <button id="gps-answer-btn" style="display:none;">&#128205;現在地</button>
         <button id="photo-answer-btn" style="display:none;" title="位置情報（GPS）が付いてる写真を選ぶと、撮影場所を解答扱いにできるヨ">&#128247;写真</button>
         <input type="file" id="photo-answer-input" accept="image/*" style="display:none;">
@@ -464,7 +465,7 @@
     <ul>
       <li>ヒントは2種類：「じわじわヒント」は選んでから10秒後に頭文字、その後3秒ごとに1文字ずつ増えるヨ。「隣接市町村ヒント」は、正解した市区町村の隣の名前がヒントとして少しずつ出てくるヨ</li>
       <li>最初から「◯」で文字数がわかるカラ、安心してネ</li>
-      <li>人口の色分けや、名前リスト表示もオンにできるけど、名前リストを使うとスコアが1/3になっちゃうから気をつけてネ！</li>
+      <li>人口の色分けや、地名リスト表示もオンにできるけど、地名リストを使うとスコアが1/3になっちゃうから気をつけてネ！</li>
     </ul>
     <h3>操作方法</h3>
     <ul>
@@ -1063,6 +1064,7 @@ async function __initGame() {
     score += points;
     updateScoreDisplay();
     answeredCodes.add(code);
+    playCorrectSound();
     showToast(`正解ダカラ！${feature.properties.city}（+${points}点）`, false);
     geoLayer.eachLayer(l => { if (l.feature.properties.code === code) l.setStyle(styleFeature(l.feature)); });
     addAnsweredLabel(feature);
@@ -1534,10 +1536,11 @@ async function __initGame() {
     document.getElementById('gps-answer-btn').style.display = 'block';
     document.getElementById('photo-answer-btn').style.display = 'block';
     if (window.matchMedia('(min-width: 481px)').matches) {
-      // PC版だけ、現在地・写真ボタンを入力カードの左の別カードに移動するダカラ（スマホ版はaction-buttons内のママにするヨ）
+      // PC版だけ、現在地・写真・地名リストボタンを入力カードの左の別カードに移動するダカラ（スマホ版はaction-buttons内のママにするヨ）
       const gpsCard = document.getElementById('gps-card');
       gpsCard.appendChild(document.getElementById('gps-answer-btn'));
       gpsCard.appendChild(document.getElementById('photo-answer-btn'));
+      gpsCard.appendChild(document.getElementById('name-list-btn'));
       gpsCard.style.display = 'flex';
     }
     document.getElementById('progress').textContent = `0 / ${inRangeCodes.size}`;
@@ -1579,6 +1582,39 @@ async function __initGame() {
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.03);
       src.connect(filt).connect(gain).connect(audioCtx.destination);
       src.start(t);
+    } catch (e) { /* 音が鳴らせない環境ダカラ無視するヨ */ }
+  }
+  function playCorrectSound() {
+    if (!seEnabled) return;
+    try {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const t = audioCtx.currentTime;
+
+      // 「ポコッ」というピッチが上がる柔らかい音（本体）ダカラ
+      const main = audioCtx.createOscillator();
+      main.type = 'sine';
+      main.frequency.setValueAtTime(220, t);
+      main.frequency.exponentialRampToValueAtTime(520, t + 0.07);
+      const mainGain = audioCtx.createGain();
+      mainGain.gain.setValueAtTime(0.0001, t);
+      mainGain.gain.exponentialRampToValueAtTime(0.3, t + 0.015);
+      mainGain.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+      main.connect(mainGain).connect(audioCtx.destination);
+      main.start(t);
+      main.stop(t + 0.18);
+
+      // 明るさを足すオクターブ上の倍音（控えめ音量ダカラ）
+      const harm = audioCtx.createOscillator();
+      harm.type = 'sine';
+      harm.frequency.setValueAtTime(440, t);
+      harm.frequency.exponentialRampToValueAtTime(1040, t + 0.07);
+      const harmGain = audioCtx.createGain();
+      harmGain.gain.setValueAtTime(0.0001, t);
+      harmGain.gain.exponentialRampToValueAtTime(0.1, t + 0.015);
+      harmGain.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+      harm.connect(harmGain).connect(audioCtx.destination);
+      harm.start(t);
+      harm.stop(t + 0.16);
     } catch (e) { /* 音が鳴らせない環境ダカラ無視するヨ */ }
   }
   document.getElementById('answer-input').addEventListener('input', playTypeSound);

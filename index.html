@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>日本全国市区町村名タイピングゲーム v1.50</title>
+<title>日本全国市区町村名タイピングゲーム v1.51</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>%F0%9F%97%BE</text></svg>">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <style>
@@ -121,6 +121,10 @@
     #action-buttons.open { display: flex; }
     #action-buttons button { width: 100%; justify-content: flex-start; }
     #mobile-jump-btn { display: flex; }
+
+    #result-card { padding: 22px 18px; width: 94vw; }
+    #result-flags-grid { grid-template-columns: repeat(auto-fill, minmax(38px, 1fr)); }
+    #result-flags-grid-wrap { max-height: 160px; }
   }
   #answer-input { flex: 0 1 380px; font-size: 18px; padding: 10px 12px; border: 1px solid #ccc; border-radius: 8px; }
   @media (min-width: 481px) {
@@ -350,7 +354,8 @@
   }
   #result-overlay.show { display: flex; }
   #result-card {
-    background: var(--bg-panel); border-radius: 14px; padding: 28px 36px; text-align: center; min-width: 260px;
+    background: var(--bg-panel); border-radius: 14px; padding: 28px 36px; text-align: center;
+    min-width: 260px; width: min(560px, 92vw); max-height: 88vh; overflow-y: auto;
   }
   #result-card h2 { margin-bottom: 12px; }
   #result-card .big { font-size: 32px; font-weight: bold; color: var(--teal); margin-bottom: 6px; }
@@ -363,12 +368,47 @@
     max-width: 320px; margin-top: 14px; overflow-x: auto; cursor: grab;
     scrollbar-width: none; -ms-overflow-style: none;
   }
+  #result-badges:empty { display: none; margin-top: 0; }
   #result-badges::-webkit-scrollbar { display: none; }
   #result-badges.dragging { cursor: grabbing; }
   #result-share-row { margin-top: 4px; }
   #share-btn {
     margin-top: 6px; padding: 8px 20px; border-radius: 20px; border: 1px solid var(--teal);
     background: #fff; color: var(--teal); font-weight: bold; cursor: pointer; font-size: 13px;
+  }
+
+  /* ---------- 結果画面：集めた旗パレード ---------- */
+  #result-flags-section { margin-top: 16px; text-align: left; }
+  #result-flags-header {
+    display: flex; align-items: baseline; justify-content: space-between;
+    font-size: 12px; color: var(--ink-dim); margin-bottom: 6px;
+  }
+  #result-flags-grid-wrap {
+    max-height: 190px; overflow-y: auto; border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px;
+  }
+  #result-flags-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 6px;
+  }
+  .flag-parade-icon {
+    width: 100%; aspect-ratio: 4 / 3; border: 1px solid var(--line); border-radius: 4px;
+    overflow: hidden; cursor: pointer; opacity: 0; transform: scale(0.5);
+    animation: flagPop 0.3s ease-out forwards; background: #fff;
+  }
+  .flag-parade-icon svg { width: 100%; height: 100%; display: block; }
+  @keyframes flagPop {
+    0% { opacity: 0; transform: scale(0.5); }
+    70% { opacity: 1; transform: scale(1.08); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+  #result-flags-more { font-size: 11px; color: var(--ink-dim); text-align: center; margin-top: 6px; }
+
+  /* ---------- 結果画面：操作ボタン群 ---------- */
+  .result-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+  .result-actions-row { display: flex; gap: 8px; }
+  .result-actions-row button { flex: 1; margin-top: 0; }
+  #result-card button.btn-outline {
+    background: #fff; color: var(--teal); border: 1px solid var(--teal);
   }
 </style>
 </head>
@@ -378,7 +418,7 @@
 <div id="app" style="display:none;">
 
   <div id="overlay">
-    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.50</span></h1>
+    <h1>日本全国市区町村名タイピングゲーム <span id="version-tag">v1.51</span></h1>
     <div class="desc">地図上の市区町村をクリックして、名前を入力してクダサイ。<br>入力欄が空のときはスペースキーでランダム選択、矢印キーで隣に移動もできるヨ。Tabキーで正解ラベルの表示/非表示も切り替えられるダカラ。<br>下で範囲・制限時間・ヒントを選んでからスタートしてネ。</div>
     <button id="howto-link" type="button">📖 遊び方</button>
 
@@ -531,10 +571,28 @@
       <div class="big" id="result-score">0 / 0</div>
       <div id="result-detail" style="font-size:13px; color:var(--ink-dim);"></div>
       <div id="result-badges"></div>
+
+      <div id="result-flags-section" style="display:none;">
+        <div id="result-flags-header">
+          <span>集めた旗（<span id="result-flags-count">0</span>件）</span>
+          <span id="result-flags-note"></span>
+        </div>
+        <div id="result-flags-grid-wrap">
+          <div id="result-flags-grid"></div>
+        </div>
+        <div id="result-flags-more" style="display:none;"></div>
+      </div>
+
       <div id="result-share-row">
         <button id="share-btn">共有URLをコピー</button>
       </div>
-      <button id="restart-btn">もう一回セットアップに戻る</button>
+      <div class="result-actions">
+        <button id="play-again-btn">もう一度プレイ</button>
+        <div class="result-actions-row">
+          <button id="result-zukan-btn" class="btn-outline">図鑑で全部見る</button>
+          <button id="restart-btn" class="btn-outline">最初の画面に戻る</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -626,6 +684,7 @@ async function __initGame() {
   let labelsVisible = true;
   let score = 0;
   let sessionBadgeLog = []; // 今回のセッションで獲得したバッジだけを結果画面用に控えておくダカラ
+  let sessionMuniOrder = []; // 今回のセッションで正解した順に市区町村旗を控えておくダカラ（結果画面の旗パレード用）
   let startEarnedPrefFull = new Set(), startEarnedPrefPartial = new Set();
   let startEarnedCapitalFull = new Set(), startEarnedCapitalPartial = new Set();
   let startEarnedOrdinanceFull = new Set(), startEarnedOrdinancePartial = new Set();
@@ -1079,7 +1138,7 @@ async function __initGame() {
       document.getElementById('badge-overlay').appendChild(
         renderBadge(muniSvg, 'muni', feature.properties.city, false)
       );
-      sessionBadgeLog.push({ svg: muniSvg, cls: 'muni', title: feature.properties.city, isPartial: false });
+      sessionMuniOrder.push({ code, svg: muniSvg, title: feature.properties.city }); // 結果画面の旗パレードは正解した順に並べるダカラ、コッチに控えるヨ
       saveProgressToLocalStorage();
     }
 
@@ -1194,6 +1253,7 @@ async function __initGame() {
       rankLine;
 
     copySessionBadgesToResult();
+    renderResultFlagParade();
     document.getElementById('result-overlay').classList.add('show');
 
     bestScoreEver = Math.max(bestScoreEver, score);
@@ -1245,6 +1305,48 @@ async function __initGame() {
 
     // 人口グラデーション
     document.getElementById('hint-population').checked = !!cfg.pop;
+  }
+
+  function renderResultFlagParade() {
+    // 全国モードだけ人口ジャナクテ「正解した順」で上位300件に絞るダカラ（コレ以外のモードは全部表示、最大でも316件くらいダヨ）
+    const section = document.getElementById('result-flags-section');
+    const grid = document.getElementById('result-flags-grid');
+    const moreEl = document.getElementById('result-flags-more');
+    const countEl = document.getElementById('result-flags-count');
+    const noteEl = document.getElementById('result-flags-note');
+    grid.innerHTML = '';
+
+    if (sessionMuniOrder.length === 0) {
+      section.style.display = 'none';
+      return;
+    }
+    section.style.display = 'block';
+
+    const cap = (currentRange === '全国') ? 300 : Infinity;
+    const shown = sessionMuniOrder.slice(0, cap);
+    const remaining = sessionMuniOrder.length - shown.length;
+
+    countEl.textContent = sessionMuniOrder.length;
+    noteEl.textContent = (currentRange === '全国') ? '正解した順・最大300件まで表示' : '正解した順';
+
+    // 件数が多いほどアニメを速くするダカラ（全部出るのに大体2秒チョットで収まる計算ダヨ）
+    const delay = Math.min(0.035, 2.2 / Math.max(1, shown.length));
+    shown.forEach((entry, i) => {
+      const cell = document.createElement('div');
+      cell.className = 'flag-parade-icon';
+      cell.style.animationDelay = (i * delay).toFixed(3) + 's';
+      cell.title = entry.title;
+      cell.innerHTML = entry.svg;
+      cell.addEventListener('click', () => openBadgeModal(entry.svg, entry.title, false));
+      grid.appendChild(cell);
+    });
+
+    if (remaining > 0) {
+      moreEl.style.display = 'block';
+      moreEl.textContent = `+ あと${remaining}件`;
+    } else {
+      moreEl.style.display = 'none';
+    }
   }
 
   function copySessionBadgesToResult() {
@@ -1495,7 +1597,7 @@ async function __initGame() {
     }
   }
 
-  document.getElementById('start-btn').addEventListener('click', () => {
+  function beginGame() {
     const adjacentRadio = document.querySelector('input[name="adjacent-hint-type"]:checked');
     hintAdjacentMode = adjacentRadio ? adjacentRadio.value : 'none';
     hintsOn = hintAdjacentMode !== 'none';
@@ -1517,6 +1619,7 @@ async function __initGame() {
     clearTimeout(timeHintTimer);
     score = 0;
     sessionBadgeLog = [];
+    sessionMuniOrder = [];
     silentlyBackfillBadges();
     saveProgressToLocalStorage();
     startEarnedPrefFull = new Set(earnedPrefFull);
@@ -1562,7 +1665,9 @@ async function __initGame() {
     jumpRandom(true); // 最初から広い範囲の全体図だと分かりづらいから、ランダムで1つ選んだ状態でスタートするダカラ（アニメ無しで即表示）
     lastAnswerTime = Date.now(); // 地図移動の待ち時間を1問目の回答タイムに含めないようにするダカラ
     firstQuestionStartTime = lastAnswerTime; // ランクの平均ペース計算の起点ダカラ
-  });
+  }
+
+  document.getElementById('start-btn').addEventListener('click', beginGame);
 
   let audioCtx = null;
   let seEnabled = true;
@@ -2359,6 +2464,18 @@ async function __initGame() {
       pendingSharedCfg = null;
     }
     document.getElementById('overlay').style.display = 'flex';
+  });
+
+  document.getElementById('play-again-btn').addEventListener('click', () => {
+    // 「もう一度プレイ」はセットアップ画面を経由せず、同じ条件のまま即リスタートするダカラ
+    document.getElementById('result-overlay').classList.remove('show');
+    beginGame();
+  });
+
+  document.getElementById('result-zukan-btn').addEventListener('click', () => {
+    document.getElementById('result-overlay').classList.remove('show');
+    renderZukanPrefList();
+    document.getElementById('zukan-overlay').classList.add('show');
   });
 
   document.getElementById('giveup-btn').addEventListener('click', () => {
